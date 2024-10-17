@@ -21,6 +21,7 @@ set(SOURCES
 include_directories(${HEADER_DIRS})
 
 # 生成可执行文件
+LINK_LIBRARIES(m)
 add_executable(project_hw  ${SOURCES})
 target_link_libraries(project_hw PRIVATE ${PROJECT_SOURCE_DIR}/lib/libseek_model.so)
 

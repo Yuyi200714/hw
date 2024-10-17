@@ -9,6 +9,7 @@ extern "C" {
 #endif
 
 int32_t AlgorithmRun(const InputParam *input, OutputParam *output);
+int32_t AlgorithmRun2(const InputParam *input, OutputParam *output);
 
 #ifdef __cplusplus
 }
