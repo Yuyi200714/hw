@@ -50,7 +50,7 @@ int32_t BlcokPriority(const InputParam *input, OutputParam *output)
     qsort(sortedIOs, input->ioVec.len, sizeof(IOUint), compareIO);
 
     // 计算每个块的大小
-    uint32_t blockSize = (uint32_t)(input->ioVec.len/5);
+    uint32_t blockSize = (uint32_t)(input->ioVec.len/1);
     uint32_t blockNum = (input->ioVec.len + blockSize - 1) / blockSize;
 
     uint32_t index = 0;
@@ -186,6 +186,227 @@ int32_t BlcokPriority(const InputParam *input, OutputParam *output)
 
     free(sortedIOs);
     return RETURN_OK;
+}
+
+int32_t PriorityGreed(const InputParam *input, OutputParam *output)
+{
+    int32_t ret;
+    int count=0;
+
+    // 创建一个新的数组来存储排序后的 IO 请求
+    IOUint *sortedIOs = (IOUint *)malloc(input->ioVec.len * sizeof(IOUint));
+    if (sortedIOs == NULL) {
+        free(output->sequence);
+        return RETURN_ERROR;
+    }
+    for (uint32_t i = 0; i < input->ioVec.len; i++) {
+        sortedIOs[i] = input->ioVec.ioArray[i];
+    }
+
+    // 按照 startLpos 对 IO 请求进行排序
+    qsort(sortedIOs, input->ioVec.len, sizeof(IOUint), compareIO);
+
+    // 计算每个块的大小
+    uint32_t blockNum = 10;
+    uint32_t blockSize = (uint32_t)(input->ioVec.len/blockNum);
+    blockNum = (input->ioVec.len + blockSize - 1) / blockSize;
+
+    uint32_t index = 0;
+    for (uint32_t b = 0; b < blockNum; b++) {
+        uint32_t start = b * blockSize;
+        uint32_t end = (b + 1) * blockSize;
+        if (end > input->ioVec.len) {
+            end = input->ioVec.len;
+        }
+
+        // 计算每个块内的 IO 优先级数量
+        int **priorityCount = (int **)malloc((end - start) * sizeof(int *));
+        for (uint32_t i = 0; i < end - start; i++) {
+            priorityCount[i] = (int *)calloc(3, sizeof(int));
+            for (uint32_t j = 0; j < end - start; j++) {
+                if (i != j) {
+                    int priority = calculatePriority(&sortedIOs[start + i], &sortedIOs[start + j]);
+                    priorityCount[i][priority - 1]++;
+                }
+            }
+        }
+
+        // 标记已处理的 IO
+        int *processed = (int *)calloc(end - start, sizeof(int));
+
+        // 选择块内最左边且 wrap 为偶数的 IO
+        int selectedIndex = -1;
+        for (uint32_t i = 0; i < end - start; i++) {
+            if (sortedIOs[start + i].wrap % 2 == 0) {
+                selectedIndex = i;
+                break;
+            }
+        }
+
+        if (selectedIndex == -1) {
+            // 如果没有找到 wrap 为偶数的 IO，则选择最右边的 IO
+            selectedIndex = end - start - 1;
+        }
+
+        // 将选中的 IO 放入 output 中
+        processed[selectedIndex] = 1;
+        output->sequence[index++] = sortedIOs[start + selectedIndex].id;
+
+        // 进入循环
+        while (1) {
+            int nextIndex1 = -1;
+            int nextIndex2 = -1;
+            uint32_t minDistance1 = INT_MAX;
+            uint32_t minDistance2 = INT_MAX;
+            
+            // 找到下一个最近的且不重合的第一优先级 IO (io1)
+            if (sortedIOs[start + selectedIndex].wrap % 2 == 0) {
+                // wrap 为偶数，从左往右找
+                for (uint32_t i = selectedIndex; i < end - start; i++) {
+                    if (!processed[i] && calculatePriority(&sortedIOs[start + selectedIndex], &sortedIOs[start + i]) == 1) {
+                        HeadInfo first,second;
+                        first.wrap = sortedIOs[start + selectedIndex].wrap;
+                        first.lpos = sortedIOs[start + selectedIndex].endLpos;
+                        first.status = HEAD_RW;
+                        second.wrap = sortedIOs[start + i].wrap;
+                        second.lpos = sortedIOs[start + i].startLpos;
+                        second.status = HEAD_RW;
+                        uint32_t seekTime = SeekTimeCalculate(&first, &second);
+                        if (seekTime < minDistance1) {
+                            minDistance1 = seekTime;
+                            nextIndex1 = i;
+                        }
+                    }
+                }
+            } else {
+                // wrap 为奇数，从右往左找
+                for (int32_t i = selectedIndex; i >= 0; i--) {
+                    if (!processed[i] && calculatePriority(&sortedIOs[start + selectedIndex], &sortedIOs[start + i]) == 1) {
+                        HeadInfo first,second;
+                        first.wrap = sortedIOs[start + selectedIndex].wrap;
+                        first.lpos = sortedIOs[start + selectedIndex].endLpos;
+                        first.status = HEAD_RW;
+                        second.wrap = sortedIOs[start + i].wrap;
+                        second.lpos = sortedIOs[start + i].startLpos;
+                        second.status = HEAD_RW;
+                        uint32_t seekTime = SeekTimeCalculate(&first, &second);
+                        if (seekTime < minDistance1) {
+                            minDistance1 = seekTime;
+                            nextIndex1 = i;
+                        }
+                    }
+                }
+            }
+
+            // 找到距离当前 IO 最近的且 wrap 奇偶性不同的 IO (io2)
+            for (uint32_t i = 0; i < end - start; i++) {
+                if (!processed[i] && sortedIOs[start + selectedIndex].wrap % 2 != sortedIOs[start + i].wrap % 2) {
+                    HeadInfo first,second;
+                    first.wrap = sortedIOs[start + selectedIndex].wrap;
+                    first.lpos = sortedIOs[start + selectedIndex].endLpos;
+                    first.status = HEAD_RW;
+                    second.wrap = sortedIOs[start + i].wrap;
+                    second.lpos = sortedIOs[start + i].startLpos;
+                    second.status = HEAD_RW;
+                    uint32_t seekTime = SeekTimeCalculate(&first, &second);
+                    if (seekTime < minDistance2) {
+                        minDistance2 = seekTime;
+                        nextIndex2 = i;
+                    }
+                }
+            }
+
+            if (nextIndex1 == -1 && nextIndex2 == -1) {
+                if(index == end){
+                    break;
+                }
+                if(sortedIOs[start+selectedIndex].wrap%2==0){
+                    for(uint32_t i = 0; i < end - start; i++){
+                        if(!processed[i]){
+                            nextIndex1 = i;
+                            break;
+                        }
+                    }
+                }
+                else{
+                    for(int32_t i = end - start - 1; i >= 0; i--){
+                        if(!processed[i]){
+                            nextIndex1 = i;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            else if(nextIndex1 == -1){
+                selectedIndex = nextIndex2;
+            }
+            else if (nextIndex2 == -1) {
+                selectedIndex = nextIndex1;
+            }
+            else{
+                int num = priorityCount[nextIndex2][0];
+                double score = (num / (double)sqrt(end - start)) * minDistance1 - minDistance2;
+                
+                if(score>0){
+                    // // 输出当前 IO、io1 和 io2 的信息，以及 num 和 score
+                    // printf("当前 IO: id = %u, wrap = %u, startLpos = %u, endLpos = %u\n",
+                    //     sortedIOs[start + selectedIndex].id, sortedIOs[start + selectedIndex].wrap,
+                    //     sortedIOs[start + selectedIndex].startLpos, sortedIOs[start + selectedIndex].endLpos);
+                    // if (nextIndex1 != -1) {
+                    //     printf("io1: id = %u, wrap = %u, startLpos = %u, endLpos = %u\n",
+                    //         sortedIOs[start + nextIndex1].id, sortedIOs[start + nextIndex1].wrap,
+                    //         sortedIOs[start + nextIndex1].startLpos, sortedIOs[start + nextIndex1].endLpos);
+                    // } else {
+                    //     printf("io1: not found\n");
+                    // }
+                    // if (nextIndex2 != -1) {
+                    //     printf("io2: id = %u, wrap = %u, startLpos = %u, endLpos = %u\n",
+                    //         sortedIOs[start + nextIndex2].id, sortedIOs[start + nextIndex2].wrap,
+                    //         sortedIOs[start + nextIndex2].startLpos, sortedIOs[start + nextIndex2].endLpos);
+                    // } else {
+                    //     printf("io2: not found\n");
+                    // }
+                    // printf("num = %d, score = %f\n", num, score);
+                    count++;
+                }
+
+                if (score > 0 || nextIndex1 == -1) {
+                    selectedIndex = nextIndex2;
+                    // 重新计算未放入 output 的 IO 的第一优先级个数
+                    for (uint32_t i = 0; i < end - start; i++) {
+                        if (!processed[i]) {
+                            priorityCount[i][0] = 0;
+                            for (uint32_t j = 0; j < end - start; j++) {
+                                if (i != j && !processed[j] && calculatePriority(&sortedIOs[start + i], &sortedIOs[start + j]) == 1) {
+                                    priorityCount[i][0]++;
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    selectedIndex = nextIndex1;
+                }
+            }
+            // 将选中的 IO 放入 output 中
+            processed[selectedIndex] = 1;
+            output->sequence[index++] = sortedIOs[start + selectedIndex].id;
+            if(index == end){
+                break;
+            }
+        }
+
+        for (uint32_t i = 0; i < end - start; i++) {
+            free(priorityCount[i]);
+        }
+        free(priorityCount);
+        free(processed);
+    }
+
+    free(sortedIOs);
+    printf("count = %d\n", count);
+    return RETURN_OK;
+
 }
 
 int32_t Greedy(const InputParam *input, OutputParam *output)
@@ -331,7 +552,7 @@ int32_t AlgorithmRun2(const InputParam *input, OutputParam *output)
 {
     int32_t ret;
     // printf("BlcokPriority:\n");
-    ret = BlcokPriority(input, output);
+    ret = PriorityGreed(input, output);
     // for(uint32_t i = 0; i < output->len; i++){
     //     printf("%u ", output->sequence[i]);
     // }
