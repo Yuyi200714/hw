@@ -50,7 +50,13 @@ int32_t BlcokPriority(const InputParam *input, OutputParam *output)
     qsort(sortedIOs, input->ioVec.len, sizeof(IOUint), compareIO);
 
     // 计算每个块的大小
-    uint32_t blockSize = (uint32_t)(input->ioVec.len/1);
+    // int len = input->ioVec.len;
+    // int num = 0;
+    // while (len > 0) {
+    //     len /= 10;
+    //     num++;
+    // }
+    uint32_t blockSize = (uint32_t)(input->ioVec.len/2);
     uint32_t blockNum = (input->ioVec.len + blockSize - 1) / blockSize;
 
     uint32_t index = 0;
@@ -61,11 +67,11 @@ int32_t BlcokPriority(const InputParam *input, OutputParam *output)
             end = input->ioVec.len;
         }
         // 输出当前块内所有 IO 的 ID
-        printf("Block %u: ", b);
-        for (uint32_t i = start; i < end; i++) {
-            printf("%u ", sortedIOs[i].id);
-        }
-        printf("\n");
+        // printf("Block %u: ", b);
+        // for (uint32_t i = start; i < end; i++) {
+        //     printf("%u ", sortedIOs[i].id);
+        // }
+        // printf("\n");
 
         // 标记已处理的 IO
         int *processed = (int *)calloc(end - start, sizeof(int));
@@ -85,13 +91,13 @@ int32_t BlcokPriority(const InputParam *input, OutputParam *output)
                 }
             }
 
-            //输出块内每个 IO 的 ID 及其三个优先级的数量
-            for (uint32_t i = 0; i < end - start; i++) {
-                if (processed[i] == 1)
-                    continue;
-                printf("IO %u: First Priority: %d, Second Priority: %d, Third Priority: %d, wrap = %u, startLpos = %u, endLpos = %u\n",
-                    sortedIOs[start + i].id, priorityCount[i][0], priorityCount[i][1], priorityCount[i][2],sortedIOs[start + i].wrap,sortedIOs[start + i].startLpos,sortedIOs[start + i].endLpos);
-            }
+            // //输出块内每个 IO 的 ID 及其三个优先级的数量
+            // for (uint32_t i = 0; i < end - start; i++) {
+            //     if (processed[i] == 1)
+            //         continue;
+            //     printf("IO %u: First Priority: %d, Second Priority: %d, Third Priority: %d, wrap = %u, startLpos = %u, endLpos = %u\n",
+            //         sortedIOs[start + i].id, priorityCount[i][0], priorityCount[i][1], priorityCount[i][2],sortedIOs[start + i].wrap,sortedIOs[start + i].startLpos,sortedIOs[start + i].endLpos);
+            // }
 
 
 
@@ -134,7 +140,7 @@ int32_t BlcokPriority(const InputParam *input, OutputParam *output)
             
             processed[selectedIndex] = 1;
             output->sequence[index++] = sortedIOs[start + selectedIndex].id;
-            printf("选中的io为 %u 优先级链为 %d\n", sortedIOs[start + selectedIndex].id, flag);
+            //printf("选中的io为 %u 优先级链为 %d\n", sortedIOs[start + selectedIndex].id, flag);
 
             // 将选中的 IO 和它的第flag优先级 IO 按照 startLpos 的顺序放入 output 中
             int wrap = sortedIOs[start + selectedIndex].wrap;
@@ -173,12 +179,12 @@ int32_t BlcokPriority(const InputParam *input, OutputParam *output)
                 }
             }
             if(index == end){
-                //输出当前块内的 IO ID 按顺序
-                printf("当前块内的 IO ID 顺序为: ");
-                for (uint32_t i = start; i < end; i++) {
-                    printf("%u ", output->sequence[i]);
-                }
-                printf("\n");
+                // //输出当前块内的 IO ID 按顺序
+                // printf("当前块内的 IO ID 顺序为: ");
+                // for (uint32_t i = start; i < end; i++) {
+                //     printf("%u ", output->sequence[i]);
+                // }
+                // printf("\n");
                 break;
             }
         }        
@@ -538,12 +544,57 @@ int32_t FIFO(const InputParam *input, OutputParam *output){
 int32_t AlgorithmRun(const InputParam *input, OutputParam *output)
 {
     int32_t ret;
-    // printf("Greedy:\n");
+    OutputParam *output2 = (OutputParam *)malloc(sizeof(OutputParam));
+    output2->len = input->ioVec.len;
+    output2->sequence = (uint32_t *)malloc(output2->len * sizeof(uint32_t));
     ret = Greedy(input, output);
-    // for(uint32_t i = 0; i < output->len; i++){
-    //     printf("%u ", output->sequence[i]);
-    // }
-    // printf("\n");
+    ret = BlcokPriority(input, output2);
+
+    /* 统计指标 */
+    KeyMetrics metrics = {0};
+    KeyMetrics metrics2 = {0};
+
+    /* IO 数量 */
+    metrics.ioCount = input->ioVec.len;
+    metrics2.ioCount = input->ioVec.len;
+    /* 获取错误调度的IO数量 */
+    metrics.errorIOCount = GetMissingNumbers(input->ioVec.len, output->sequence, output->len);
+    metrics2.errorIOCount = GetMissingNumbers(input->ioVec.len, output2->sequence, output2->len);
+    if (metrics.errorIOCount > 0) {
+        /* 总微秒数 */
+        metrics.algorithmRunningDuration = 0;
+        /* 访问时间 */
+        metrics.addressingDuration = 0;
+        /* 带体磨损 */
+        metrics.tapeBeltWear = 0;
+        /* 电机磨损 */
+        metrics.tapeMotorWear = 0;
+    } else {
+        /* 访问时间 */
+        AccessTime accessTime = {0};
+        AccessTime accessTime2 = {0};
+        TotalAccessTime(input, output, &accessTime);
+        TotalAccessTime(input, output2, &accessTime2);
+        metrics.addressingDuration = accessTime.addressDuration;
+        metrics2.addressingDuration = accessTime2.addressDuration;
+        metrics.readDuration = accessTime.readDuration;
+        metrics2.readDuration = accessTime2.readDuration;
+        // /* 带体磨损 */
+        // TapeBeltSegWearInfo segWearInfo = {0};
+        // metrics.tapeBeltWear = TotalTapeBeltWearTimes(inputParam, output, &segWearInfo);
+        // memcpy(&metrics.lposPassTime, segWearInfo.segWear, sizeof(segWearInfo.segWear));
+        // /* 电机磨损 */
+        // metrics.tapeMotorWear = TotalMotorWearTimes(inputParam, output);
+    }
+    //printf("%d %d\n", metrics.addressingDuration, metrics2.addressingDuration);
+    if(metrics2.addressingDuration < metrics.addressingDuration){
+        memcpy(output->sequence, output2->sequence, output2->len * sizeof(uint32_t));
+        //printf("选择了第二种算法\n");
+    }
+    else{
+        //printf("选择了第一种算法\n");
+    }
+    
 
     return RETURN_OK;
 }
@@ -553,10 +604,6 @@ int32_t AlgorithmRun2(const InputParam *input, OutputParam *output)
     int32_t ret;
     // printf("BlcokPriority:\n");
     ret = PriorityGreed(input, output);
-    // for(uint32_t i = 0; i < output->len; i++){
-    //     printf("%u ", output->sequence[i]);
-    // }
-    // printf("\n");
 
     return RETURN_OK;
 }

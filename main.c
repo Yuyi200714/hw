@@ -268,9 +268,7 @@ int main(int argc, char *argv[])
     output->len = inputParam->ioVec.len;
     output->sequence = (uint32_t *)malloc(output->len * sizeof(uint32_t));
 
-    OutputParam *output2 = (OutputParam *)malloc(sizeof(OutputParam));
-    output2->len = inputParam->ioVec.len;
-    output2->sequence = (uint32_t *)malloc(output2->len * sizeof(uint32_t));
+    
 
     /* 统计算法运行时间 */
     struct timeval start, end;
@@ -278,7 +276,7 @@ int main(int argc, char *argv[])
 
     /* 算法执行 */
     ret = AlgorithmRun(inputParam, output);
-    ret = AlgorithmRun2(inputParam, output2);
+    //ret = AlgorithmRun2(inputParam, output2);
 
     gettimeofday(&end, NULL);  // 记录结束时间
     long seconds, useconds;    // 秒数和微秒数
@@ -287,14 +285,14 @@ int main(int argc, char *argv[])
 
     /* 统计指标 */
     KeyMetrics metrics = {0};
-    KeyMetrics metrics2 = {0};
+    //KeyMetrics metrics2 = {0};
 
     /* IO 数量 */
     metrics.ioCount = inputParam->ioVec.len;
-    metrics2.ioCount = inputParam->ioVec.len;
+    //metrics2.ioCount = inputParam->ioVec.len;
     /* 获取错误调度的IO数量 */
     metrics.errorIOCount = GetMissingNumbers(inputParam->ioVec.len, output->sequence, output->len);
-    metrics2.errorIOCount = GetMissingNumbers(inputParam->ioVec.len, output2->sequence, output2->len);
+    //metrics2.errorIOCount = GetMissingNumbers(inputParam->ioVec.len, output2->sequence, output2->len);
     if (metrics.errorIOCount > 0) {
         /* 总微秒数 */
         metrics.algorithmRunningDuration = 0;
@@ -307,13 +305,13 @@ int main(int argc, char *argv[])
     } else {
         /* 访问时间 */
         AccessTime accessTime = {0};
-        AccessTime accessTime2 = {0};
+        //AccessTime accessTime2 = {0};
         TotalAccessTime(inputParam, output, &accessTime);
-        TotalAccessTime(inputParam, output2, &accessTime2);
+        //TotalAccessTime(inputParam, output2, &accessTime2);
         metrics.addressingDuration = accessTime.addressDuration;
-        metrics2.addressingDuration = accessTime2.addressDuration;
+        //metrics2.addressingDuration = accessTime2.addressDuration;
         metrics.readDuration = accessTime.readDuration;
-        metrics2.readDuration = accessTime2.readDuration;
+        //metrics2.readDuration = accessTime2.readDuration;
         /* 带体磨损 */
         TapeBeltSegWearInfo segWearInfo = {0};
         metrics.tapeBeltWear = TotalTapeBeltWearTimes(inputParam, output, &segWearInfo);
@@ -326,12 +324,12 @@ int main(int argc, char *argv[])
     metrics.algorithmRunningDuration = ((seconds)*1000000 + useconds) / 1000.0;
     /* 内存占用 */
     metrics.memoryUse = 0;
-    printf("Greedy: \n");
+    // printf("Greedy: \n");
     PrintMetrics(&metrics);
-    printf("\n");
-    printf("BlockPriority: \n");
-    PrintMetrics(&metrics2);
-    printf("\n");
+    // printf("\n");
+    // printf("BlockPriority: \n");
+    // PrintMetrics(&metrics2);
+    // printf("\n");
     /* 保存指标数据到文件 */
     SaveKeyMetricsToFile("./metrics.txt", &metrics);
 
@@ -343,8 +341,8 @@ int main(int argc, char *argv[])
     free(inputParam);
     free(output->sequence);
     free(output);
-    free(output2->sequence);
-    free(output2);
+    //free(output2->sequence);
+    //free(output2);
 
     return RETURN_OK;
 }

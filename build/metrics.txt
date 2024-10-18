@@ -1,9 +1,9 @@
 /* 关键指标结构体 */
 ioCount: 5000 
-algorithmRunningDuration(ms): 863.65 
+algorithmRunningDuration(ms): 1084.39 
 memoryUse(ms): 0 
-addressingDuration(ms): 9030489 
-readDuration(ms): 9847883
-tapeBeltWear(times): 17796210
-tapeMotorWear(times): 674 
+addressingDuration(ms): 8653386 
+readDuration(ms): 10087302
+tapeBeltWear(times): 18033528
+tapeMotorWear(times): 533 
 errorIOCount: 0 
